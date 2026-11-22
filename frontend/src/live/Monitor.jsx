@@ -1,0 +1,10 @@
+import React,{useState} from 'react'
+import {PageHeader,Panel,Notice} from '../components/ui'
+import {ElectionPicker,LiveParticipation,LiveHealth,LiveResults} from './Admin'
+import {useLoad,QueryView,StateBadge} from './common'
+import {api} from '../services/api'
+export function MonitorDashboard(){const [id,setId]=useState('');return <><PageHeader eyebrow="ELECTION MONITOR / READ ONLY" title="Election monitoring" description="Live aggregate election participation. No individual choices or management controls."/><ElectionPicker value={id} onChange={setId} readOnly/><LiveParticipation electionId={id}/><LiveHealth/></>}
+export function MonitorParticipation(){const [id,setId]=useState('');return <><PageHeader eyebrow="ELECTION MONITOR" title="Participation statistics"/><ElectionPicker value={id} onChange={setId} readOnly/><LiveParticipation electionId={id}/></>}
+export function MonitorElectionStatus(){const [id,setId]=useState('');const state=useLoad(api.monitorElections,[],{pollMs:5000});const selected=state.data?.find(e=>String(e.id)===String(id));return <><PageHeader eyebrow="ELECTION MONITOR" title="Election status"/><ElectionPicker value={id} onChange={setId} readOnly/><QueryView {...state} retry={state.refresh}>{selected&&<Panel title={selected.title}><div className="detail-row"><span>Server-reported election state</span><StateBadge status={selected.status}/></div><p className="muted small">Updated every five seconds when this page is visible. The Phase 9 API does not expose an authoritative closing deadline, so no countdown is displayed.</p></Panel>}</QueryView></>}
+export function MonitorHealth(){return <><PageHeader eyebrow="ELECTION MONITOR" title="Server and network health"/><LiveHealth/></>}
+export function MonitorResults(){const [id,setId]=useState('');return <><PageHeader eyebrow="ELECTION MONITOR" title="Final results"/><ElectionPicker value={id} onChange={setId} readOnly/>{id?<LiveResults electionId={id}/>:<Notice title="Select a closed election">Candidate totals are available only after closure.</Notice>}</>}

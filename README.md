@@ -1,143 +1,219 @@
-# LAN-Based Digital Voting System — Phase 7 Starter
+# LAN Voting System
 
-> **Status:** environment scaffold only. No voting, login, admin accounts, ballot storage, migrations, or election security has been implemented. **Do not use for a real election.**
+A local development prototype for managing elections and recording student ballots over a LAN. The project includes a React frontend, a Django REST API, and a MySQL database.
+
+> **Use synthetic accounts and ballots for development. This is an academic prototype, not a certified election system.** The included Django and Vite development servers use HTTP and are not suitable for a live school election. A real deployment needs a reviewed security design, trusted HTTPS for every device, operational procedures, and independent testing.
+
+## Implemented features
+
+### Student accounts and eligibility
+
+- Session-based sign-in and sign-out with CSRF protection and role checks.
+- Temporary passwords can be required to change at first sign-in.
+- Student accounts include a student ID, name, course (BSIT or BIT), and year level (1–4).
+- An administrator can add students and optionally assign them to a Draft election.
+- Existing student details can be edited. Deactivate and reactivate actions preserve the account and election history; inactive accounts are hidden unless **Show inactive accounts** is selected. Deactivation is blocked for a student eligible in an open election.
+- Election Setup provides group eligibility choices for all BSIT and BIT students, each full course, and each course/year group. A preview shows matching, already eligible, and newly added counts. The administrator confirms the assignment once. The server processes the entire group, regardless of voter-list pagination, and repeating the assignment does not create duplicates.
+
+### Candidates and voting
+
+- Administrators can create and edit Draft elections, positions, and candidates, then open or close an election.
+- Candidate profile photos can be JPG/JPEG, PNG, or WebP, up to 2 MB. The API checks the image content, stores files under random names in `backend/media/`, and uses initials when a photo is missing. Photos are profile images only; the system does not identify people from faces.
+- Eligible students can view open elections and candidate profiles, select candidates, review their ballot, submit it, and check their own participation status.
+- Ballot submission is handled by a Django transaction. Ballot records use random IDs and do not directly reference a voter account; participation is stored separately.
+- Duplicate submissions, closed elections, ineligible students, and invalid candidate/position selections are rejected by the backend.
+
+### Administration and monitoring
+
+- Administrators manage voter accounts, staff accounts, elections, candidate details, eligibility, and election lifecycle.
+- Administrators can view aggregate participation, integrity checks, audit events, and results after an election closes. Closed-election CSV reports are available.
+- Election monitors have read-only access to election status, aggregate participation, and permitted system-health information.
+- Health endpoints report application/database status. A separate network-testing folder contains demonstration material; it is not part of vote submission.
+
+See [Phase 10 notes](PHASE10-README.md), [account creation guide](docs/ACCOUNT-CREATION.md), [candidate photo guide](docs/CANDIDATE-PHOTOS.md), and [student classification/eligibility guide](docs/STUDENT-CLASSIFICATION-ELIGIBILITY.md) for feature details.
 
 ## Requirements
-- Windows 10/11 or Linux; terminal and Git
-- Python 3.12 or 3.13
-- Node.js 22 LTS (at least 22.12 for Vite)
-- MySQL 8.4
-- Optional Wireshark / Cisco Packet Tracer
 
-Recommended dependencies: Django 5.2 LTS, Django REST Framework 3.16, mysqlclient 2.2, React 19, Vite 7. Install versions resolved by the package managers within the specified compatible ranges; commit a generated lockfile after confirming an install.
+- Windows PowerShell (commands below) or another compatible development environment
+- Python with compatible Django and MySQL client packages
+- Node.js 22.12 or newer and npm
+- A running local MySQL server
+- Git (optional)
 
-## 1. Open the project (Windows PowerShell)
+The backend dependencies are listed in `backend/requirements.txt`; frontend dependencies and scripts are in `frontend/package.json`.
 
-Extract this folder, open PowerShell in `lan-voting-system`, then:
+## Local development setup
 
-```powershell
-python --version
-node --version
-npm --version
-git --version
-mysql --version
-```
+### 1. Configure the backend
 
-If `mysql` is unrecognized, MySQL may be missing or not on PATH. Inspect your local setup before installing anything.
-
-## 2. Backend installation
+Open PowerShell in the project root and run:
 
 ```powershell
 cd backend
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-PowerShell may block activation by policy; alternatively run `.venv\Scripts\python.exe` directly for each Python command.
-
-Edit `backend/.env` in a text editor. Replace the placeholder secret and database password. Generate a secret safely with:
+Edit `backend/.env` in a text editor. Replace the Django secret and MySQL placeholders. Generate a secret with:
 
 ```powershell
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-**Never commit `.env`.** Do not reuse your MySQL root account for the application.
+Keep `.env` private and out of Git. Use a dedicated local MySQL account, not the MySQL root account. The MySQL **server** must be running and the database named in `MYSQL_DATABASE` must exist. `mysql` command-line access is optional for Django commands; `manage.py dbshell` specifically requires the MySQL client executable to be on PATH.
 
-### Create the local MySQL database
+The example settings are for local development. Keep MySQL bound to loopback (`127.0.0.1`) and do not expose port 3306 to student devices.
 
-Open MySQL command-line client as an administrator (typically `mysql -u root -p`). Replace placeholders in the following example **at execution time** with a strong password. Do not save real credentials in your project:
+### 2. Apply migrations and check Django
 
-```sql
-CREATE DATABASE lan_voting CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-CREATE USER 'lan_voting_app'@'127.0.0.1' IDENTIFIED BY 'YOUR_UNIQUE_STRONG_PASSWORD';
-GRANT SELECT, INSERT, UPDATE, DELETE ON lan_voting.* TO 'lan_voting_app'@'127.0.0.1';
-```
-
-This is a limited application account, **not a migration account**. Schema migrations will later require a separate, privileged maintenance account. Keep MySQL bound to loopback (`127.0.0.1`); do **not** open port 3306 to the LAN.
-
-Set `MYSQL_HOST=127.0.0.1` and matching credentials in `backend/.env`.
-
-### Check Django and database
+Run these commands from `backend/` after configuring the local database:
 
 ```powershell
-python manage.py check
-python manage.py dbshell
+.\.venv\Scripts\python.exe manage.py migrate
+.\.venv\Scripts\python.exe manage.py check
+.\.venv\Scripts\python.exe manage.py showmigrations
 ```
 
-Do **not** run `python manage.py migrate` yet. The custom User model from Phase 6 must be defined before the first migration. `dbshell` verifies that the MySQL client and configured credentials can connect (exit with `exit`). If `dbshell` cannot locate the MySQL client on PATH, use `python -c "import django; django.setup(); from django.db import connection; connection.ensure_connection(); print('MySQL connection OK')"` after setting `DJANGO_SETTINGS_MODULE=config.settings` in the same terminal.
+Use `.venv\Scripts\python.exe` directly if PowerShell blocks virtual-environment activation. Do not point this development project at a production database. A custom Django user model is in use; never replace its migration history or reset a database with data you need to keep.
 
-Start the development backend:
+Create the first administrator interactively:
 
 ```powershell
-python manage.py runserver 127.0.0.1:8000
+.\.venv\Scripts\python.exe manage.py createsuperuser
 ```
 
-Visit http://127.0.0.1:8000/api/health/ and expect `{ "status": "ok" }`.
+Then assign that account the application's `ADMIN` role using the steps in [the account creation guide](docs/ACCOUNT-CREATION.md). The primary administrator is the superuser; only that account can create additional administrator accounts.
 
-## 3. Frontend installation (second terminal)
+Start Django in the backend terminal:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
+```
+
+Check `http://127.0.0.1:8000/api/health/`; a healthy response is `{"status":"ok"}`.
+
+### 3. Start the frontend
+
+Open a second PowerShell window in the project root:
 
 ```powershell
 cd frontend
-npm install
-npm run dev
+npm.cmd install
+npm.cmd run dev
 ```
 
-Visit http://127.0.0.1:5173. The screen should show `Django API: ok` when both services are running. The Vite local proxy forwards `/api/` to Django on 8000; no CORS package or browser-facing backend port is necessary.
+Open `http://127.0.0.1:5173`. In PowerShell, `npm.cmd` avoids the script-execution policy error that can block `npm.ps1`. Vite proxies `/api/` and `/media/` to Django on `127.0.0.1:8000`.
 
-Before committing to Git, review the package lock generated by npm and ensure the installed packages have compatible versions.
-
-## 4. Git
-
-From the project root:
+To compile the static frontend:
 
 ```powershell
-git init
-git status
-git add .
-git status
-git commit -m "Initialize LAN voting development environment"
+npm.cmd run build
 ```
 
-Use `git status` to verify `.env`, `.venv`, `node_modules` and database dumps are not staged. `git commit` requires Git username/email to be configured locally.
+## First-use workflow
 
-## 5. LAN connectivity testing (synthetic data only)
+1. Sign in as the administrator and create a Draft election.
+2. Add election positions and candidates. Candidate images are optional.
+3. Add student accounts with their course and year, or edit existing accounts to classify them.
+4. In the election's **Positions / eligibility** setup, choose an all-student, course, or course/year group. Review the matching counts, then confirm to grant eligibility. Only active, classified students in Years 1–4 match these groups.
+5. Open the election only after checking its positions, candidates, and eligible voter list.
+6. Sign in as an eligible synthetic student to review and submit a development ballot. Results are available to administrators and monitors only after closure.
 
-**Default dev setup is loopback-only**: other devices cannot reach it. This is intentional.
+Deactivating a student does not delete their account or historical participation. Deactivation is blocked while they are eligible in an open election. An inactive account can be found and reactivated through **Show inactive accounts**.
 
-1. Run `ipconfig` on the server computer, identify its IPv4 address, such as `192.168.10.10`.
-2. Connect the server and phone to the same authorized LAN. Prefer wired Ethernet for the server.
-3. For a *temporary lab-only HTTP demonstration with no real passwords or votes*, run Django with `python manage.py runserver 0.0.0.0:8000` and Vite with `npm run dev:lan`. Change `DJANGO_ALLOWED_HOSTS` to include the real server IP, and update `frontend/vite.config.js` `server.host` to `0.0.0.0` (the npm `--host` argument may override it). The browser connects to `http://SERVER_IP:5173` and Vite proxies `/api` to loopback Django. Do not expose port 8000 through Windows Firewall unless explicitly required; only allow TCP 5173 on **Private** networks, scoped to your lab subnet, while doing this test.
-4. This Vite+Django developer-server arrangement is **not suitable for a school election**. For deployment, compile React with `npm run build` and use an HTTPS-capable local web server as a single origin (port 443), forwarding `/api/` to Django bound to loopback under a production WSGI server. Install a trusted local certificate on client devices.
-5. In production, allow TCP 443 from the authorized LAN to the reverse proxy. Keep 8000 and 3306 inaccessible from student devices. Disable router client isolation if it blocks authorized server communication; do not lower general school security without permission.
-6. Disconnect the router WAN/internet uplink and verify the local site still loads.
+## LAN development demonstration
 
-For this phase, test only the health endpoint with synthetic data. Do not log in real voters or use live ballots over HTTP.
+The default setup is available only on the development computer. To open the development UI from a phone or another computer on the same authorized LAN, use this temporary workflow with **synthetic accounts and data only**. Do not send real credentials or ballots over HTTP.
 
-## Troubleshooting
+### 1. Find the development computer's IPv4 address
 
-- **`npm` not found:** install a supported Node.js LTS build and reopen PowerShell.
-- **`python` not found:** install Python and enable the launcher/PATH option.
-- **`mysqlclient` install fails:** install the proper C compiler / MySQL client build prerequisites, or use a compatible prebuilt wheel for your Python and Windows version. Do not substitute a new DB driver without testing Django compatibility.
-- **MySQL connection refused:** start the MySQL service; verify `MYSQL_HOST`, `MYSQL_PORT`, credentials and local account host.
-- **Unknown host/disallowed host:** update `DJANGO_ALLOWED_HOSTS` to the exact server IP/hostname.
-- **Frontend shows API unreachable:** verify Django runs on 127.0.0.1:8000 and visit `/api/health/` directly.
-- **Windows firewall:** allow only scoped intended inbound ports on the Private profile; never open MySQL publicly.
+On the computer running the project, open PowerShell and run:
 
-## Important security limitations
+```powershell
+ipconfig
+```
 
-The starter is **not** an election application. It has no ballot transaction logic, custom user model, election roles, role permissions, server deployment TLS, or privacy testing. The health endpoint is deliberately minimal. Do not run `migrate` with a custom user model later without first deciding the authentication model; if you already applied default Django auth migrations locally, arrange a controlled reset of your disposable development database before adding the approved custom User model. This is why we intentionally do not run migrations during this phase.
+Find **IPv4 Address** under the active Wi-Fi or Ethernet adapter. The example below uses `10.67.1.123`; replace it with the current address shown on your computer. If the computer is using a phone hotspot, reconnecting may change this address.
 
-## Project structure
+### 2. Add that address to `backend/.env`
 
-- `frontend/`: React/Vite starter and backend connectivity view
-- `backend/`: Django/DRF project, environment-based MySQL config, minimal health route
-- `database/`: database provisioning *example*, not executed automatically
-- `docs/`: requirements and architecture placeholders
-- `network-testing/`: authorized network diagnostics notes
+Open `backend/.env` in a text editor and update the development settings. `ALLOWED_HOSTS` contains host names/IP addresses only (no scheme and no port). `CSRF_TRUSTED_ORIGINS` contains the full browser origin (including `http://` and Vite's port `5173`).
 
-## Next milestone
+```env
+DJANGO_DEBUG=True
+DJANGO_ALLOWED_HOSTS=127.0.0.1,localhost,10.67.1.123
+DJANGO_CSRF_TRUSTED_ORIGINS=http://10.67.1.123:5173
+DJANGO_SESSION_COOKIE_SECURE=False
+DJANGO_CSRF_COOKIE_SECURE=False
+```
 
-After explicit approval: implement custom User model **before the first real database migration**, then election and voting domain models from the approved Phase 6 schema. Separately design/test the HTTPS LAN deployment.
+Keep `.env` local and uncommitted. After changing the server IP or these settings, stop and restart Django.
+
+### 3. Start Django on loopback
+
+In a PowerShell window, run:
+
+```powershell
+cd path\to\lan-voting-system\backend
+.\.venv\Scripts\python.exe manage.py runserver 127.0.0.1:8000
+```
+
+Keep this window open. Django stays on the development computer; Vite will proxy API and image requests to it.
+
+### 4. Start Vite for LAN access
+
+Open a second PowerShell window:
+
+```powershell
+cd path\to\lan-voting-system\frontend
+npm.cmd run dev:lan
+```
+
+Keep this window open too. In PowerShell, `npm.cmd` avoids the execution-policy error that can block `npm.ps1`.
+
+### 5. Open the site on the other device
+
+Connect both devices to the same authorized Wi-Fi or hotspot. On the phone or other computer, open:
+
+```text
+http://10.67.1.123:5173
+```
+
+Replace `10.67.1.123` with the development computer's current IPv4 address. If Django logs `DisallowedHost`, check that the IP is in `DJANGO_ALLOWED_HOSTS`, then restart Django. If a state-changing request reports a CSRF origin error, check `DJANGO_CSRF_TRUSTED_ORIGINS` includes `http://<server-ip>:5173` and restart Django.
+
+If the page does not load, confirm both terminal servers are still running and that the devices can communicate over the LAN. A firewall rule may be needed for TCP 5173 on the Private profile, scoped to the authorized LAN, if local policy permits. Do not expose ports 8000 or 3306 to student devices and do not disable the firewall or router security controls broadly.
+
+The Vite/Django development-server arrangement is **not a production deployment**. A deployment would need a reviewed HTTPS-capable web server on a single origin, Django behind a production WSGI server bound to loopback, trusted certificates installed on client devices, scoped firewall rules, and MySQL inaccessible from student devices. Follow school IT policy; do not disable general network security to make the demo work.
+
+## Important security and data notes
+
+- This project has not been independently audited or certified for elections. Passing a Django check or local build does not establish election security.
+- Use synthetic data while developing. Do not use live ballots over the HTTP development server.
+- Ballot selections are not directly linked to user accounts in the application models, but the project has not received a formal privacy/security review. Do not claim certified ballot anonymity.
+- Deactivated accounts and closed-election participation records are retained. Back up the MySQL database and the separate `backend/media/` candidate photo files.
+- Uploaded candidate photos are profile images only. Do not upload identity documents or sensitive images.
+- `backend/.env`, `.venv/`, `frontend/node_modules/`, build output, and media files must not be committed. Review `git status` before staging changes.
+
+## Project layout
+
+- `backend/` — Django settings, authentication, elections, voting, results, monitoring, and audit API
+- `frontend/` — React/Vite administration, student, and monitor interfaces
+- `database/` — database setup references
+- `docs/` — API, account, feature, and integration guides
+- `network-testing/` — separate LAN/network demonstration material
+
+## Checks and test commands
+
+The project includes Django checks/tests and a frontend API test script. Run these against a disposable development/test database, not production data:
+
+```powershell
+# From backend/
+.\.venv\Scripts\python.exe manage.py check
+.\.venv\Scripts\python.exe manage.py test
+
+# From frontend/
+npm.cmd run test:api
+```
+next task to do , enhance the UI and visual for monitor
